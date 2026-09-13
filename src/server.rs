@@ -154,6 +154,51 @@ struct ArchitectureArgs {
     arch: String,
 }
 
+/// Map a user-supplied examine format to the single-char gdb code.
+/// Accepts the single-char code (`x`) or common long names (`hex`).
+/// Unknown or empty input passes through a sentinel (`?`) so the session
+/// layer reports a clear "invalid examine format" error instead of silently
+/// truncating e.g. "hex" to 'h' (a size code).
+fn normalize_examine_format(input: Option<&str>) -> char {
+    let raw = input.unwrap_or("").trim().to_ascii_lowercase();
+    if raw.is_empty() {
+        return 'x';
+    }
+    if raw.len() == 1 {
+        return raw.chars().next().unwrap_or('?');
+    }
+    match raw.as_str() {
+        "hex" | "hexadecimal" => 'x',
+        "decimal" | "signed" => 'd',
+        "unsigned" => 'u',
+        "octal" => 'o',
+        "binary" => 't',
+        "char" => 'c',
+        "string" => 's',
+        "instruction" | "instructions" => 'i',
+        _ => raw.chars().next().unwrap_or('?'),
+    }
+}
+
+/// Map a user-supplied examine size to the single-char gdb code.
+/// Accepts the single-char code (`w`) or common long names (`word`).
+fn normalize_examine_size(input: Option<&str>) -> char {
+    let raw = input.unwrap_or("").trim().to_ascii_lowercase();
+    if raw.is_empty() {
+        return 'w';
+    }
+    if raw.len() == 1 {
+        return raw.chars().next().unwrap_or('?');
+    }
+    match raw.as_str() {
+        "byte" | "bytes" => 'b',
+        "halfword" | "half" | "short" => 'h',
+        "word" | "long" => 'w',
+        "giant" | "double" | "quad" => 'g',
+        _ => raw.chars().next().unwrap_or('?'),
+    }
+}
+
 #[derive(Clone)]
 pub struct OpenMcpGdbServerFactory {
     config: ServerConfig,
@@ -396,16 +441,8 @@ impl OpenMcpGdbServer {
         self.call_operation(ToolOperation::ExamineMemory {
             address: args.address,
             count: args.count.unwrap_or(16),
-            format: args
-                .format
-                .as_deref()
-                .and_then(|s| s.chars().next())
-                .unwrap_or('x'),
-            size: args
-                .size
-                .as_deref()
-                .and_then(|s| s.chars().next())
-                .unwrap_or('w'),
+            format: normalize_examine_format(args.format.as_deref()),
+            size: normalize_examine_size(args.size.as_deref()),
         })
         .await
     }
@@ -2764,5 +2801,26 @@ mod tests {
             commands[..frame_idx].iter().any(|cmd| cmd == "printf \"\""),
             "current_code should resync before frame while running"
         );
+    }
+
+    #[test]
+    fn test_normalize_examine_format_accepts_aliases() {
+        assert_eq!(normalize_examine_format(None), 'x');
+        assert_eq!(normalize_examine_format(Some("")), 'x');
+        assert_eq!(normalize_examine_format(Some("x")), 'x');
+        assert_eq!(normalize_examine_format(Some("hex")), 'x');
+        assert_eq!(normalize_examine_format(Some("instruction")), 'i');
+        // Unknown input passes through for the session layer to reject clearly.
+        assert_eq!(normalize_examine_format(Some("zzz")), 'z');
+    }
+
+    #[test]
+    fn test_normalize_examine_size_accepts_aliases() {
+        assert_eq!(normalize_examine_size(None), 'w');
+        assert_eq!(normalize_examine_size(Some("")), 'w');
+        assert_eq!(normalize_examine_size(Some("w")), 'w');
+        assert_eq!(normalize_examine_size(Some("word")), 'w');
+        assert_eq!(normalize_examine_size(Some("byte")), 'b');
+        assert_eq!(normalize_examine_size(Some("zzz")), 'z');
     }
 }

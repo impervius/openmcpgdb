@@ -72,7 +72,7 @@ enabled = true
 ## Requirements
 
 - Rust toolchain (stable)
-- GDB available on `PATH` (or set `gdb_path` to its absolute location)
+- GDB available on `PATH` (or set `gdb_path` in config, or pass `--gdb-path`, e.g. `gdb-multiarch` for cross-arch targets)
 - Linux/macOS environment for the provided examples
 
 ## Project Layout
@@ -111,11 +111,14 @@ Example (only overrides what differs from the defaults):
   "mcp_server_url": "stdio://",
   "display_lines_before_current": 7,
   "display_lines_after_current": 8,
-  "display_backtrace": 50,
-  "display_variable_list": 20,
-  "display_join_current_code": true
+  "display_backtrace": 6,
+  "display_variable_list": 9,
+  "display_join_current_code": false
 }
 ```
+
+The values above are the built-in defaults (except the placeholder
+`codebase_dir`/`executable_path`, which you should point at your own project).
 
 Defaults:
 
@@ -168,6 +171,31 @@ Register the binary in your MCP client, e.g. for opencode:
     "openmcpgdb": {
       "type": "local",
       "command": ["target/debug/openmcpgdb"],
+      "enabled": true
+    }
+  }
+}
+```
+
+### GDB binary selection (`--gdb-path`)
+
+Defaults to `gdb` from `PATH`. Override per run without editing config
+(precedence: `--gdb-path` > config `gdb_path` > default) — e.g. for
+multi-arch targets where native `gdb` rejects a foreign ELF:
+
+```bash
+cargo run --bin openmcpgdb -- --gdb-path gdb-multiarch
+cargo run --bin openmcpgdb -- --gdb-path /usr/bin/aarch64-linux-gnu-gdb config.json
+```
+
+For opencode:
+
+```json
+{
+  "mcp": {
+    "openmcpgdb": {
+      "type": "local",
+      "command": ["target/debug/openmcpgdb", "--gdb-path", "gdb-multiarch"],
       "enabled": true
     }
   }
@@ -376,6 +404,10 @@ All tool responses include `debugger_state` and may include `stop_reason`, `vari
 - `gdb_run()`
 - `gdb_gdbserver(ip, port, pid)`
 - `gdb_target_remote(ip, port)`
+- `gdb_target_extended_remote(ip, port)` — for `gdbserver --multi`
+- `gdb_set_sysroot(path)` — `set sysroot` for remote library resolution
+- `gdb_set_solib_search_path(path)` — `set solib-search-path`
+- `gdb_set_architecture(arch)` — `set architecture` (e.g. `aarch64`, `arm`, `auto`)
 - `gdb_set_thread(id)`
 - `gdb_set_frame(id)`
 

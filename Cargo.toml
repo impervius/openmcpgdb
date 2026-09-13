@@ -3,22 +3,23 @@ name = "openmcpgdb"
 version = "0.2.0"
 edition = "2024"
 authors = ["Brosnan Yuen <brosnanyuen@gmail.com>"]
-description = " Interactive MCP server to control gdb. Fully featured and written in rust "
+description = "Interactive MCP server to control gdb. Fully featured and written in rust"
 readme = "README.md"
 repository = "https://github.com/BrosnanYuen/openmcpgdb"
 keywords = ["mcp", "claude", "crates", "opencode", "gdb"]
 license = "GPL-3.0-only"
-categories = ["development-tools", "web-programming"]
+categories = ["development-tools"]
 
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
 axum = "0.8"
+clap = { version = "4", features = ["derive"] }
 rmcp = { version = "3", features = ["server", "client", "transport-io", "transport-child-process", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-std", "io-util", "process", "time", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-std", "io-util", "process", "time", "net", "signal"] }
 tokio-util = "0.7"
 url = "2"
 

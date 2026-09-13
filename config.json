@@ -1,8 +1,9 @@
 {
   "gdb_path": "/usr/bin/gdb",
-  "codebase_dir": "/absolute/path/to/project",
-  "executable_path": "/absolute/path/to/project/target/debug/app",
   "mcp_server_url": "stdio://",
-  "display_backtrace": 20,
-  "display_variable_list": 10
+  "display_lines_before_current": 7,
+  "display_lines_after_current": 8,
+  "display_backtrace": 6,
+  "display_variable_list": 9,
+  "display_join_current_code": false
 }

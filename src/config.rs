@@ -109,18 +109,26 @@ impl Default for ServerConfig {
 impl ServerConfig {
     /// Load and validate a config file. Errors name the offending file.
     pub fn from_file(path: &Path) -> Result<Self> {
+        let mut config = Self::from_file_unvalidated(path)?;
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Load a config file without validating, so callers can apply CLI
+    /// overrides (which take precedence) before the single `validate()` in
+    /// `run_from_config`. Errors still name the offending file.
+    pub fn from_file_unvalidated(path: &Path) -> Result<Self> {
         let data = std::fs::read_to_string(path).map_err(|err| match err.kind() {
             std::io::ErrorKind::NotFound => OpenMcpGdbError::ConfigNotFound {
                 path: path.to_path_buf(),
             },
             _ => OpenMcpGdbError::Io(err),
         })?;
-        let mut config: Self =
+        let config: Self =
             serde_json::from_str(&data).map_err(|source| OpenMcpGdbError::ConfigParse {
                 path: path.to_path_buf(),
                 source,
             })?;
-        config.validate()?;
         Ok(config)
     }
 

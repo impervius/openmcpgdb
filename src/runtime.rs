@@ -59,16 +59,27 @@ async fn run_http_server(url: Url, factory: OpenMcpGdbServerFactory) -> Result<(
         .port_or_known_default()
         .ok_or_else(|| OpenMcpGdbError::InvalidUrl("missing port in mcp_server_url".to_string()))?;
 
+    // `Url::path()` returns "/" (never empty) for bare hosts like
+    // `http://localhost:9443`, so treat both as "no path given".
     let raw_path = url.path();
-    let path = if raw_path.is_empty() {
-        "/mcp"
+    let normalized = if raw_path.is_empty() || raw_path == "/" {
+        "/".to_string()
     } else {
-        raw_path
+        let trimmed = raw_path.trim_end_matches('/');
+        if trimmed.is_empty() {
+            "/".to_string()
+        } else {
+            trimmed.to_string()
+        }
     };
+    // Bare host serves at root via fallback; an explicit path (e.g. `/mcp`)
+    // is nested. Default to `/mcp` only when needed by callers expecting it.
+    let path = normalized;
     let bind_addr = format!("{host}:{port}");
 
     // rmcp manages per-client sessions for streamable-http mode.
     let cancellation_token = CancellationToken::new();
+    let shutdown_token = cancellation_token.clone();
     let config = StreamableHttpServerConfig::default()
         .with_json_response(true)
         .with_cancellation_token(cancellation_token.child_token());
@@ -79,14 +90,20 @@ async fn run_http_server(url: Url, factory: OpenMcpGdbServerFactory) -> Result<(
         // axum disallows nesting at root; attach MCP service as router fallback.
         axum::Router::new().fallback_service(service)
     } else {
-        axum::Router::new().nest_service(path, service)
+        axum::Router::new().nest_service(&path, service)
     };
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .map_err(OpenMcpGdbError::Io)?;
 
     axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal(shutdown_token))
         .await
         .map_err(OpenMcpGdbError::Io)?;
     Ok(())
+}
+
+async fn shutdown_signal(token: CancellationToken) {
+    let _ = tokio::signal::ctrl_c().await;
+    token.cancel();
 }

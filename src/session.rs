@@ -177,33 +177,41 @@ pub fn spawn_session_thread(
     let (request_tx, mut request_rx) = mpsc::channel::<WorkerMessage>(64);
 
     // Every client gets a dedicated worker thread and runtime for isolation.
-    thread::spawn(move || {
-        let runtime_result = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build();
+    if let Err(err) = thread::Builder::new()
+        .name("openmcpgdb-session".to_string())
+        .spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(err) => {
+                    eprintln!("[openmcpgdb] failed to build session runtime: {err}");
+                    return;
+                }
+            };
 
-        let Ok(runtime) = runtime_result else {
-            return;
-        };
-
-        runtime.block_on(async move {
-            let mut core = SessionCore::new(config, &mut backend);
-            while let Some(message) = request_rx.recv().await {
-                match message {
-                    WorkerMessage::Execute {
-                        operation,
-                        response_tx,
-                    } => {
-                        let result = core.execute(operation).await;
-                        let result = core.enrich_crash_response_result(result).await;
-                        let _ = response_tx.send(result);
+            runtime.block_on(async move {
+                let mut core = SessionCore::new(config, &mut backend);
+                while let Some(message) = request_rx.recv().await {
+                    match message {
+                        WorkerMessage::Execute {
+                            operation,
+                            response_tx,
+                        } => {
+                            let result = core.execute(operation).await;
+                            let result = core.enrich_crash_response_result(result).await;
+                            let _ = response_tx.send(result);
+                        }
                     }
                 }
-            }
-            let _ = core.shutdown().await;
-            let _ = backend.stop().await;
-        });
-    });
+                let _ = core.shutdown().await;
+                let _ = backend.stop().await;
+            });
+        })
+    {
+        eprintln!("[openmcpgdb] failed to spawn session thread: {err}");
+    }
 
     SessionWorkerHandle { request_tx }
 }
@@ -2206,10 +2214,14 @@ fn parse_examine_memory_rows(output: &str) -> BTreeMap<String, String> {
 }
 
 fn sanitize_gdb_input(input: &str) -> String {
-    // Replace newlines and strip command separators that could chain
-    // arbitrary GDB commands (e.g. "main; shell rm ...").
-    // Keep the original text otherwise; `gdb_custom` is the intended
-    // escape hatch for raw GDB syntax.
+    // Trust boundary: MCP clients (local LLM agents) are trusted callers, and
+    // `gdb_custom` intentionally bypasses this helper as the raw escape hatch.
+    // For all other tools, block command chaining via newlines and `;`
+    // (e.g. "main; shell rm ..."). GDB expressions themselves (e.g. `print
+    // system("...")`) remain as powerful as GDB allows by design; do not
+    // expose this server to untrusted clients.
+    // `|`, `&`, `$`, backticks etc. are preserved because they are valid in
+    // legitimate GDB expressions (bitwise ops, convenience vars, casts).
     let mut out = input.replace(['\n', '\r'], " ");
     // Replace suspicious GDB command chaining chars with space to avoid
     // `break main; shell` style injection via location/expression args.

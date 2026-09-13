@@ -1,35 +1,23 @@
-use openmcpgdb::{
-    ServerConfig,
-    error::OpenMcpGdbError,
-    runtime::{run_from_config, run_from_config_file},
-};
+use clap::Parser;
+use openmcpgdb::{ServerConfig, error::OpenMcpGdbError, runtime::run_from_config};
 use std::path::PathBuf;
 
-fn print_usage() {
-    println!(
-        "openmcpgdb {} - Interactive MCP server to control gdb
+/// Interactive MCP server to control gdb.
+#[derive(Debug, Parser)]
+#[command(name = "openmcpgdb", version, about)]
+struct Cli {
+    /// Path to a JSON config file. Every field is optional; a minimal
+    /// config is just {}. With no argument, built-in defaults apply
+    /// (stdio transport, gdb resolved from PATH); a config file is never
+    /// read implicitly.
+    config_path: Option<PathBuf>,
 
-Usage:
-  openmcpgdb [CONFIG_PATH | --help | --version]
-
-Arguments:
-  CONFIG_PATH    Path to a JSON config file. Every field is optional; a
-                 minimal config is just {{}}. With no argument, built-in
-                 defaults apply (stdio transport, gdb resolved from PATH);
-                 a config file is never read implicitly.
-
-Defaults (all overridable via config):
-  gdb_path                 \"gdb\" (resolved via PATH)
-  mcp_server_url           \"stdio://\" (MCP over stdin/stdout; use
-                           http://host:port for streamable HTTP)
-
-Example minimal config.json:
-  {{
-    \"gdb_path\": \"/usr/bin/gdb\",
-    \"codebase_dir\": \"/path/to/project/src\"
-  }}",
-        env!("CARGO_PKG_VERSION"),
-    );
+    /// GDB binary to use (absolute path or command name resolved via PATH),
+    /// e.g. --gdb-path gdb-multiarch. Overrides the `gdb_path` field from
+    /// the config file and the built-in default. Useful for multi-arch
+    /// targets where a native `gdb` cannot load a foreign ELF.
+    #[arg(long = "gdb-path", value_name = "PATH")]
+    gdb_path: Option<PathBuf>,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -45,26 +33,77 @@ async fn main() -> Result<(), OpenMcpGdbError> {
 }
 
 async fn real_main() -> Result<(), OpenMcpGdbError> {
-    match std::env::args().nth(1).as_deref() {
-        Some("-h" | "--help") => {
-            print_usage();
-            Ok(())
-        }
-        Some("-V" | "--version") => {
-            println!("openmcpgdb {}", env!("CARGO_PKG_VERSION"));
-            Ok(())
-        }
+    let cli = Cli::parse();
+
+    // Load base config: explicit file (unvalidated, so CLI can override
+    // first) or built-in defaults. A config file is only ever read when
+    // explicitly passed, so startup never depends on the working directory
+    // (deterministic for MCP client registration).
+    let mut config = match cli.config_path {
         Some(path) => {
-            // An explicitly provided config must exist; explain what went wrong.
-            let config_path = PathBuf::from(path);
-            if !config_path.exists() {
-                return Err(OpenMcpGdbError::ConfigNotFound { path: config_path });
+            if !path.exists() {
+                return Err(OpenMcpGdbError::ConfigNotFound { path });
             }
-            run_from_config_file(&config_path).await
+            ServerConfig::from_file_unvalidated(&path)?
         }
-        // No argument: built-in defaults. A config file is only ever read
-        // when explicitly passed, so startup never depends on the working
-        // directory (deterministic for MCP client registration).
-        None => run_from_config(ServerConfig::default()).await,
+        None => ServerConfig::default(),
+    };
+
+    // CLI takes precedence over the config file (and defaults).
+    // `run_from_config` performs the single validation pass.
+    if let Some(gdb_path) = cli.gdb_path {
+        config.gdb_path = gdb_path;
+    }
+
+    run_from_config(config).await
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::Cli;
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    #[test]
+    fn no_args_gives_defaults() {
+        let cli = Cli::try_parse_from(["openmcpgdb"]).expect("empty args parse");
+        assert_eq!(cli.config_path, None);
+        assert_eq!(cli.gdb_path, None);
+    }
+
+    #[test]
+    fn config_positional_is_kept() {
+        let cli = Cli::try_parse_from(["openmcpgdb", "config.json"]).expect("parses");
+        assert_eq!(cli.config_path, Some(PathBuf::from("config.json")));
+        assert_eq!(cli.gdb_path, None);
+    }
+
+    #[test]
+    fn gdb_path_long_form_parses() {
+        let cli =
+            Cli::try_parse_from(["openmcpgdb", "--gdb-path", "gdb-multiarch"]).expect("parses");
+        assert_eq!(cli.gdb_path, Some(PathBuf::from("gdb-multiarch")));
+        assert_eq!(cli.config_path, None);
+    }
+
+    #[test]
+    fn gdb_path_equals_form_parses() {
+        let cli = Cli::try_parse_from(["openmcpgdb", "--gdb-path=/usr/bin/gdb"]).expect("parses");
+        assert_eq!(cli.gdb_path, Some(PathBuf::from("/usr/bin/gdb")));
+    }
+
+    #[test]
+    fn cli_and_config_combine() {
+        let cli = Cli::try_parse_from(["openmcpgdb", "--gdb-path", "gdb-multiarch", "config.json"])
+            .expect("parses");
+        assert_eq!(cli.gdb_path, Some(PathBuf::from("gdb-multiarch")));
+        assert_eq!(cli.config_path, Some(PathBuf::from("config.json")));
+    }
+
+    #[test]
+    fn missing_value_and_unknown_flag_error() {
+        assert!(Cli::try_parse_from(["openmcpgdb", "--gdb-path"]).is_err());
+        assert!(Cli::try_parse_from(["openmcpgdb", "--nope"]).is_err());
+        assert!(Cli::try_parse_from(["openmcpgdb", "a.json", "b.json"]).is_err());
     }
 }
