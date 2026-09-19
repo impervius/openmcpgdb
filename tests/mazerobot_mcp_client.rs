@@ -2,7 +2,7 @@ use anyhow::Result;
 use openmcpgdb::{ServerConfig, gdb::RealGdbBackendFactory, server::OpenMcpGdbServerFactory};
 use rmcp::{
     ClientHandler, ServiceExt,
-    model::{CallToolRequestParams, ClientInfo, ContentBlock},
+    model::{CallToolRequestParams, ClientConfig, ContentBlock},
 };
 use std::{path::Path, sync::Arc, time::Duration};
 use tokio::process::Command;
@@ -23,8 +23,8 @@ fn maze_main_c() -> std::path::PathBuf {
 struct MazeTestClient;
 
 impl ClientHandler for MazeTestClient {
-    fn get_info(&self) -> ClientInfo {
-        ClientInfo::default()
+    fn get_info(&self) -> ClientConfig {
+        ClientConfig::default()
     }
 }
 

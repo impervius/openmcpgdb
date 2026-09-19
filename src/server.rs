@@ -7,7 +7,7 @@ use crate::{
 use rmcp::{
     Json, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{ServerCapabilities, ServerInfo},
+    model::{ServerCapabilities, ServerConfig as McpServerConfig},
     schemars, tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
@@ -660,13 +660,12 @@ impl OpenMcpGdbServer {
 
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for OpenMcpGdbServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            format!(
+    fn get_info(&self) -> McpServerConfig {
+        McpServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions(format!(
                 "{} - MCP server for GDB debugging",
                 self.config.mcp_server_name
-            ),
-        )
+            ))
     }
 }
 
@@ -677,7 +676,7 @@ mod tests {
         gdb::{MockBackendHandle, MockGdbBackendFactory},
         protocol::DebuggerState,
     };
-    use rmcp::{ClientHandler, model::ClientInfo};
+    use rmcp::{ClientHandler, model::ClientConfig};
 
     fn test_config() -> ServerConfig {
         ServerConfig {
@@ -903,8 +902,8 @@ mod tests {
     struct DummyClient;
 
     impl ClientHandler for DummyClient {
-        fn get_info(&self) -> ClientInfo {
-            ClientInfo::default()
+        fn get_info(&self) -> ClientConfig {
+            ClientConfig::default()
         }
     }
 
